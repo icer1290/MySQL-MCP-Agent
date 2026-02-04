@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langchain_openai import ChatOpenAI
-# from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp import StdioServerParameters
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langgraph.graph.message import add_messages
@@ -46,7 +45,12 @@ def create_agent_graph(mcp_tools):
 
     def call_model(state: AgentState):
         # 1. 定义系统消息
-        sys_prompt = SystemMessage(content="你是一个 MySQL 专家。必须先调用 get_db_schema 获取表结构。")
+        sys_prompt = SystemMessage(content="""你是一个 MySQL 专家。
+        由于数据库表非常多，请遵循以下检索策略：
+        1. 首先调用 list_all_tables 了解有哪些表，或者调用 search_tables_by_keyword 搜索相关业务关键词（如'订单'、'用户'）。
+        2. 根据第一步的结果，调用 get_table_details 获取你认为相关的几张表的详细结构。
+        3. 最后基于详细结构编写 SQL。
+        禁止一次性猜测不存在的表名。""")
         
         # 2. 严格清洗并重新构建消息序列
         cleaned_messages = []
