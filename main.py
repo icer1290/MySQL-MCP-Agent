@@ -8,7 +8,7 @@ from mcp.client.session import ClientSession
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain_core.messages import HumanMessage
 
-# 导入你重写后的模块
+# 导入重写后的mcp模块
 from agent_graph import server_params, create_agent_graph
 
 # --- 1. 定义 FastAPI 生命周期 ---
@@ -42,6 +42,7 @@ app = FastAPI(
 # --- 3. 定义请求体 ---
 class ChatRequest(BaseModel):
     query: str
+    thread_id: str = None
 
 # --- 4. 编写接口逻辑 ---
 @app.post("/chat")
@@ -51,7 +52,8 @@ async def chat(request: ChatRequest):
 
     try:
         # 为每个请求生成唯一的 Thread ID，方便后续扩展对话记忆
-        config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+        current_thread_id = request.thread_id or str(uuid.uuid4())
+        config = {"configurable": {"thread_id": current_thread_id}}
         
         # 构造输入
         inputs = {"messages": [HumanMessage(content=request.query)]}
@@ -66,6 +68,7 @@ async def chat(request: ChatRequest):
         return {
             "status": "success",
             "query": request.query,
+            "thread_id": current_thread_id,
             "response": final_answer
         }
     except Exception as e:

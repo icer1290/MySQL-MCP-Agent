@@ -1,16 +1,27 @@
 import os
 import sys
+import logging
 from typing import Annotated, TypedDict
 from dotenv import load_dotenv
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langchain_openai import ChatOpenAI
-from langchain_mcp_adapters.tools import load_mcp_tools
+# from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp import StdioServerParameters
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+from langgraph.graph.message import add_messages
+from langchain_core.messages import SystemMessage
+from langgraph.checkpoint.memory import MemorySaver  # 导入内存存储组件
 
 load_dotenv()
+
+# 配置日志记录
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # 2. 导出 MCP 连接参数，供外部生命周期管理使用
 server_params = StdioServerParameters(
@@ -19,8 +30,6 @@ server_params = StdioServerParameters(
     env=os.environ.copy()
 )
 
-from langgraph.graph.message import add_messages
-from langchain_core.messages import SystemMessage
 
 # 1. 使用 add_messages reducer，这是处理对话流的标准方式
 class AgentState(TypedDict):
@@ -31,6 +40,9 @@ def create_agent_graph(mcp_tools):
         model=os.getenv("MODEL_NAME", "deepseek-chat"),
         # ... 其他配置
     ).bind_tools(mcp_tools)
+
+    # 实例化内存存储组件
+    memory = MemorySaver()
 
     def call_model(state: AgentState):
         # 1. 定义系统消息
@@ -66,11 +78,21 @@ def create_agent_graph(mcp_tools):
         
         return {"messages": [response]}
 
+    def print_messages(state: AgentState):
+        # 逐行打印messages，并注明消息类型
+        for msg in state["messages"]:
+            msg_type = msg.type.upper()
+            msg_content = msg.content
+            if isinstance(msg_content, list):
+                msg_content = "".join([item.get("text", str(item)) if isinstance(item, dict) else str(item) for item in msg_content])
+            logger.info(f"[{msg_type}] {msg_content}")
+
     # 构建图
     workflow = StateGraph(AgentState)
     workflow.add_node("agent", call_model)
     # ToolNode 会自动处理 state["messages"] 中最后的 tool_calls 并返回 ToolMessage
     workflow.add_node("tools", ToolNode(mcp_tools))
+    workflow.add_node("print_messages", print_messages)
 
     workflow.add_edge(START, "agent")
     
@@ -78,9 +100,10 @@ def create_agent_graph(mcp_tools):
         last_message = state["messages"][-1]
         if last_message.tool_calls:
             return "tools"
-        return END
+        return "print_messages"
 
     workflow.add_conditional_edges("agent", route_logic)
     workflow.add_edge("tools", "agent")
+    workflow.add_edge("print_messages", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=memory)
