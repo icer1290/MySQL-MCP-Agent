@@ -1,5 +1,6 @@
 import pymysql
 import pymysql.cursors
+import re
 from fastmcp import FastMCP
 from typing import List, Dict, Any
 
@@ -91,8 +92,12 @@ def run_sql_query(sql: str) -> str:
     """在数据库上执行 SQL SELECT 查询并返回结果。"""
     # 简单的安全过滤
     forbidden_keywords = ["DROP", "DELETE", "TRUNCATE", "UPDATE", "INSERT"]
-    if any(keyword in sql.upper() for keyword in forbidden_keywords):
-        return "错误：仅支持 SELECT 查询操作。"
+    sql_upper = sql.upper()
+    
+    for kw in forbidden_keywords:
+        # 使用 \b 匹配单词边界，防止匹配到 is_deleted 中的 delete
+        if re.search(rf"\b{kw}\b", sql_upper):
+            return f"错误：检测到禁止的操作词 '{kw}'，仅支持 SELECT 查询操作。"
         
     try:
         results = execute_query(sql)
