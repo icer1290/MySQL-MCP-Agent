@@ -12,6 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, Tool
 from langgraph.graph.message import add_messages
 from langchain_core.messages import SystemMessage
 from langgraph.checkpoint.memory import MemorySaver  # 导入内存存储组件
+from typing import Dict
 
 load_dotenv()
 
@@ -33,6 +34,8 @@ server_params = StdioServerParameters(
 # 1. 使用 add_messages reducer，这是处理对话流的标准方式
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
+    # 用于存储累计的 token 使用情况
+    usage: Dict[str, int]
 
 def create_agent_graph(mcp_tools):
     llm = ChatOpenAI(
@@ -79,8 +82,15 @@ def create_agent_graph(mcp_tools):
 
         # 4. 调用模型
         response = llm.invoke(full_messages)
+
+        # 5. 更新 token 使用情况
+        token_usage = response.response_metadata.get("token_usage", {})
         
-        return {"messages": [response]}
+        return {"messages": [response],
+                "usage": {
+                "input_tokens": token_usage.get("prompt_tokens", 0),
+                "output_tokens": token_usage.get("completion_tokens", 0)
+            }}
 
     def print_messages(state: AgentState):
         # 逐行打印messages，并注明消息类型
